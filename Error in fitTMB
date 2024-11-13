@@ -1,0 +1,7 @@
+# Error in fitTMB(TMBStruc) : 
+#   negative log-likelihood is NaN at starting parameter values
+# This appears to be a problem relating to the recent changes to the package Matrix. See here for details.
+# Matrix version 1.6-1.1 
+# installed.packages() |> as.data.frame() |> subset(Package=="Matrix", select = c(LibPath, Version)) 
+# require(remotes)
+# install_version("Matrix", version = "1.6-1.1", repos = "http://cran.us.r-project.org")

@@ -1,21 +1,4 @@
----
-title: "Inoculacion NLB Drones"
-format:
-  html:
-    toc: true
-    toc-depth: 5
-    embed-resources: true
-    self-contained-math: true
-    theme: 
-        #- custom.scss
-      light: 
-        - flatly
-knitr:
-  opts_chunk:
-    out.width: "100%"
-editor_options: 
-  chunk_output_type: console
----
+# Análisis {.unnumbered}
 
 ```{r pkgs, include=FALSE}
 knitr::opts_chunk$set(echo = FALSE, include=TRUE, warning = FALSE, message = FALSE, fig.width = 5)
@@ -43,20 +26,8 @@ theme_PH_dates <- theme_PH +
   theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
 ```
 
-
-```{r, eval=FALSE}
-# Error in fitTMB(TMBStruc) : 
-#   negative log-likelihood is NaN at starting parameter values
-# This appears to be a problem relating to the recent changes to the package Matrix. See here for details.
-# Matrix version 1.6-1.1 
-# installed.packages() |> as.data.frame() |> subset(Package=="Matrix", select = c(LibPath, Version)) 
-# require(remotes)
-# install_version("Matrix", version = "1.6-1.1", repos = "http://cran.us.r-project.org")
-```
-
-
 ```{r, eval=TRUE}
-raw_dat <- import("data/Resumen 23-24.xlsx") %>% 
+raw_dat <- import("data/drone_nlb_23_24.xlsx") %>% 
   janitor::clean_names()  %>% 
   mutate_if(is.numeric , replace_na, replace = 0) %>% 
   mutate(date = ymd(fecha_evaluacion), 
@@ -88,7 +59,7 @@ raw_dat %>%
   set_table_properties(layout = "autofit")
 ```
 
-## Tamaño de lesion
+##  Tamaño de lesión {.unnumbered}
 
 ```{r}
 # raw %>% 
@@ -156,7 +127,7 @@ les_size %>%
 
 datos originales: Primer eval sin el Bco, ultima todos 0
 
-### AUC
+- Calculo de AUC
 
 ```{r}
 les_size_auc <- les_size %>%   
@@ -182,7 +153,7 @@ les_size_auc %>%
   facet_wrap("ensayo", ncol=1)
 ```
 
-### 2023
+### 2023 {.unnumbered}
 
 ```{r}
 les_size %>%   
@@ -242,7 +213,7 @@ emmeans(fit_23_auc, ~trat|lesion_size|hibrido, type="response") %>%
 #   kable()
 ```
 
-### 2024
+### 2024 {.unnumbered}
 
 ```{r}
 raw_dat %>% 
@@ -331,7 +302,7 @@ emmeans(fit_24_auc, ~trat|lesion_size|hibrido, type="response") %>%
 #   kable()
 ```
 
-## Posicion del canopeo
+## Posición en el canopeo {.unnumbered}
 
 ```{r}
 raw_dat %>% 
@@ -369,7 +340,7 @@ les_pos_auc %>%
    theme_PH_dates
 ```
 
-### 2023
+### 2023 {.unnumbered}
 
 ```{r}
 les_pos_23_auc <- les_pos_auc %>%
@@ -402,7 +373,7 @@ emmeans(fit_23_pos, ~trat|lesion_pos|hibrido, type="response") %>%
 #   kable()
 ```
 
-### 2024
+### 2024 {.unnumbered}
 
 ```{r}
 les_pos_24_auc <- les_pos_auc %>%
@@ -435,7 +406,7 @@ emmeans(fit_24_pos, ~trat|lesion_pos|hibrido, type="response") %>%
 #   kable()
 ```
 
-## Score
+## Score {.unnumbered}
 
 ```{r}
 raw_dat %>%
@@ -455,7 +426,7 @@ nlb_scores %>%
 ```
 
 
-### 2023
+### 2023 {.unnumbered}
 
 ```{r}
 library(ordinal)
@@ -474,7 +445,7 @@ ord_score_23 %>%
   emmeans(~ trat|hibrido, type="response") %>% cld(decreasing=TRUE)
 ```
 
-### 2024
+### 2024 {.unnumbered}
 
 ```{r}
 nlb_scores %>%

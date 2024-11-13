@@ -1,0 +1,22 @@
+project:
+  type: book
+  output-dir: docs
+  
+book:
+  title: "Técnicas de inoculación de NLB"
+  chapters:
+    - index.qmd
+    - nlb_analysis.qmd
+  search: false
+  sidebar:
+    pinned: false
+
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    embed-resources: true
+    self-contained-math: true
+    theme: 
+      light: 
+        - flatly
