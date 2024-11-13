@@ -1,0 +1,507 @@
+---
+title: "Inoculacion NLB Drones"
+format:
+  html:
+    toc: true
+    toc-depth: 5
+    embed-resources: true
+    self-contained-math: true
+    theme: 
+        #- custom.scss
+      light: 
+        - flatly
+knitr:
+  opts_chunk:
+    out.width: "100%"
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r pkgs, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, include=TRUE, warning = FALSE, message = FALSE, fig.width = 5)
+pacman::p_load(
+  MASS, emmeans, multcomp, 
+  tidyverse, rio, knitr, flextable,
+  glmmTMB, DHARMa,
+  performance, car 
+  # broom, dotwhisker  # for visualizing regression result
+)
+
+select <- dplyr::select
+filter <- dplyr::filter
+
+source("C:/Users/GOXWW/Documents/github_edwardsmolina/spirku/spirku24/mutate_custom.R", echo=F)
+
+theme_PH <- cowplot::theme_half_open(font_size = 8)+
+  theme(
+    panel.grid.major.x = element_line(colour = "grey90"),
+    legend.position = "bottom",
+    legend.justification = "center",
+    legend.title = element_blank())
+
+theme_PH_dates <- theme_PH + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
+```
+
+
+```{r, eval=FALSE}
+# Error in fitTMB(TMBStruc) : 
+#   negative log-likelihood is NaN at starting parameter values
+# This appears to be a problem relating to the recent changes to the package Matrix. See here for details.
+# Matrix version 1.6-1.1 
+# installed.packages() |> as.data.frame() |> subset(Package=="Matrix", select = c(LibPath, Version)) 
+# require(remotes)
+# install_version("Matrix", version = "1.6-1.1", repos = "http://cran.us.r-project.org")
+```
+
+
+```{r, eval=TRUE}
+raw_dat <- import("data/Resumen 23-24.xlsx") %>% 
+  janitor::clean_names()  %>% 
+  mutate_if(is.numeric , replace_na, replace = 0) %>% 
+  mutate(date = ymd(fecha_evaluacion), 
+         rep = as.integer(str_replace_all(rep, "R", ""))) %>%  
+  select(-trat_hy, -fecha_evaluacion) %>% 
+  # group_by(ensayo) %>%
+  mutate(inoc=case_when(
+    ensayo == "1 - 2023" ~ ymd("2023-01-26"), 
+    ensayo == "2 - 2024" ~ ymd("2024-02-15"))
+    ) %>% 
+  # mutate(inoc=first(date)) %>% 
+  group_by(ensayo) %>% 
+  mutate(ddinoc=date - inoc) %>% 
+  group_by(ensayo, date) %>% 
+  mutate(score=sd(nlb_score)>0 & ensayo=="1 - 2023" ) %>% 
+  arrange(ensayo, date) %>% 
+  data.frame()
+```
+
+Muestra de primeras lineas del dataset
+
+```{r, eval=TRUE}
+raw_dat %>% 
+  head %>% 
+  flextable() %>% 
+  theme_vanilla() %>% 
+  fontsize(size = 5, part = "all") %>% 
+  line_spacing(space = 0.25, part = "all") %>% 
+  set_table_properties(layout = "autofit")
+```
+
+## Tamaño de lesion
+
+```{r}
+# raw %>% 
+#   # filter()
+#   pivot_longer(cols=contains("l_"), 
+#                names_to = "lesion_size",
+#                names_prefix="l_") %>% 
+#   mutate(lesion_size = fct_relevel(lesion_size, c( "tot", "ch", "med", "gde"))) %>%
+#   ggplot() + 
+#   aes(trat, value, col=lesion_size) +
+#   facet_grid(hibrido ~ ensayo, scales = "free") + 
+#   geom_point(position = position_dodge(width = 0.5)) + 
+#   geom_violin(position = position_dodge(width = 0.5)) +
+#   theme_PH
+```
+
+```{r}
+# my_dates <- as.POSIXct(c("2023-03-08", "2023-03-15", "2023-03-22", "2023-03-29"))
+raw_dat %>% 
+  pivot_longer(cols=contains("l_"), 
+               names_to = "lesion_size",
+               names_prefix="l_") %>% 
+  mutate(
+    lesion_size = fct_relevel(lesion_size, c( "tot", "ch", "med", "gde")),
+    date_factor = factor(date)
+    ) %>%
+  filter(lesion_size!="tot", 
+         score==FALSE) %>% 
+  ungroup-> les_size
+
+les_size %>%   
+  ggplot() + 
+  aes(ddinoc, value, col=lesion_size) +
+  facet_grid(ensayo~hibrido*trat, scales = "free") + 
+  geom_point(position = position_dodge(width = 0.5)) + 
+  geom_smooth(se=F) + 
+  ggtitle("Tamaño de lesión") +
+  theme_PH_dates
+
+les_size %>% 
+  count(ensayo, value) %>% 
+  ggplot() +
+  facet_wrap("ensayo", ncol=1)+
+  aes(x=value, y=n) + 
+  geom_col()
+```
+
+Mosaico de datos
+
+```{r}
+les_size %>%
+  group_by(ensayo, date, trat, hibrido, lesion_size) %>% 
+  summarise(value_mean=mean(value), 
+            n=sum(!is.na(value))) %>%
+  mutate(lesion_size = fct_relevel(lesion_size, c("ch", "med", "gde"))) %>%
+  ggplot(aes(y = hibrido, x = lesion_size)) +
+  facet_grid(trat~ensayo*date, scales = "free_x", space = "free_x")+
+  geom_tile(colour="black", aes(fill = value_mean)) +
+  scale_fill_viridis_c(direction = -1) +
+  geom_text(aes(label=n), color="white", size=3.5) +
+  theme(axis.text.y = element_text(size = 10), 
+        axis.text.x = element_text(angle=60, hjust=0, vjust=.5, size = 8)) +
+  labs(x="", y="", fill="Nro de lesiones", title = "Tamaño de lesiones 2023")
+```
+
+datos originales: Primer eval sin el Bco, ultima todos 0
+
+### AUC
+
+```{r}
+les_size_auc <- les_size %>%   
+  filter(!(ensayo=="1 - 2023" &  date==ymd("2023-03-08"))) %>% 
+  group_by(ensayo, trat, hibrido, lesion_size, rep) %>% 
+  summarise(auc_manchas=as.integer(round(MESS::auc(date, value))))
+
+les_size_auc %>% 
+   ggplot() + 
+   aes(trat, auc_manchas, col=lesion_size) +
+   facet_grid(ensayo ~ hibrido, scales = "free") + 
+   geom_point(position = position_dodge(width = 0.5)) + 
+   geom_smooth(se=F) + 
+   ggtitle("Tamaño de lesiones")+
+   theme_PH_dates
+```
+
+
+```{r eval=FALSE}
+les_size_auc %>%
+  ggplot(aes(auc_manchas)) + 
+  geom_histogram() + 
+  facet_wrap("ensayo", ncol=1)
+```
+
+### 2023
+
+```{r}
+les_size %>%   
+  filter(str_detect(ensayo, "2023")) %>% 
+  ggplot() + 
+  aes(ddinoc, value, col=lesion_size) +
+  facet_grid(ensayo~hibrido*trat, scales = "free") + 
+  geom_point(position = position_dodge(width = 0.5)) + 
+  geom_smooth(se=F) + 
+  ggtitle("Tamaño de lesión") +
+  theme_PH_dates
+```
+
+
+```{r}
+les_size_auc %>%
+    filter(str_detect(ensayo, "2023")) %>% 
+   ggplot() + 
+   aes(trat, auc_manchas, col=lesion_size) +
+   facet_grid(ensayo ~ hibrido, scales = "free") + 
+   geom_point(position = position_dodge(width = 0.5)) + 
+   geom_smooth(se=F) + 
+   ggtitle("Tamaño de lesiones")+
+   theme_PH_dates
+```
+
+
+```{r}
+les_size_23_auc <- les_size_auc %>% 
+  filter(str_detect(ensayo, "2023"))
+# m1 <- glm(
+#   auc_manchas ~ trat * lesion_size * hibrido + rep,
+#   family=poisson,
+#   data = les_size_23_auc)
+# DHARMa::testSimulatedResiduals(m1)
+
+fit_23_auc_0 <- glm.nb(
+  auc_manchas ~ trat * lesion_size * hibrido + rep, 
+  data = les_size_23_auc)
+
+fit_23_auc <- update(fit_23_auc_0, .~.-trat:lesion_size:hibrido)
+
+# DHARMa::testSimulatedResiduals(fit_23_auc)
+Anova(fit_23_auc, type=3) 
+```
+
+trat:lesion_size
+
+```{r}
+emmeans(fit_23_auc, ~trat|lesion_size|hibrido, type="response") %>% 
+    cld(decreasing=TRUE) 
+ 
+# emmeans(fit_23_auc, ~trat|lesion_size, type="response") %>% 
+#   cld %>% 
+#   relocate(lesion_size, trat) %>% 
+#   arrange(trat) %>% 
+#   kable()
+```
+
+### 2024
+
+```{r}
+raw_dat %>% 
+  pivot_longer(cols=contains("l_"), 
+               names_to = "lesion_size",
+               names_prefix="l_") %>% 
+  filter(lesion_size!="tot") %>%
+  filter(str_detect(ensayo, "2024")) -> les_size_24
+
+les_size_24 %>% 
+  select(date, trat, hibrido, lesion_size, rep, value) %>% 
+  group_by(date, trat, hibrido, lesion_size) %>% 
+  summarise(value_mean=mean(value), 
+            n=sum(!is.na(value))) %>%
+  mutate(lesion_size = fct_relevel(lesion_size, c("ch", "med", "gde"))) %>%
+  ggplot(aes(y = hibrido, x = lesion_size)) +
+  facet_grid(trat~date, scales = "free_x", space = "free_x")+
+  geom_tile(colour="black", aes(fill = value_mean)) +
+  scale_fill_viridis_c(direction = -1) +
+  geom_text(aes(label=n), color="white", size=3.5) +
+  theme(axis.text.y = element_text(size = 10), 
+        axis.text.x = element_text(angle=60, hjust=0, vjust=.5, size = 8)) +
+  labs(x="", y="", fill="Nro de lesiones", title = "Tamaño de lesiones 2024")
+```
+
+
+```{r}
+les_size_24 %>% 
+  ggplot() + 
+  aes(ddinoc, value, col=lesion_size) +
+  facet_grid(hibrido ~ trat, scales = "free") + 
+  geom_point(position = position_dodge(width = 0.5)) + 
+  geom_smooth(se=F) + 
+  ggtitle("2024")+
+  theme_PH_dates
+```
+
+
+```{r}
+les_size_24_auc <- les_size_auc %>% 
+  filter(str_detect(ensayo, "2024"))
+
+
+les_size_24_auc %>%
+   ggplot() + 
+   aes(trat, auc_manchas, col=lesion_size) +
+   facet_grid(ensayo ~ hibrido, scales = "free") + 
+   geom_point(position = position_dodge(width = 0.5)) + 
+   geom_smooth(se=F) + 
+   ggtitle("Tamaño de lesiones")+
+   theme_PH_dates
+```
+
+```{r eval=FALSE}
+ggplot(les_size_24_auc, aes(auc_manchas)) + geom_histogram() 
+```
+
+```{r}
+# m1 <- glm(
+#   auc_manchas ~ trat * lesion_size * hibrido + rep,
+#   family=poisson,
+#   data = les_size_24_auc)
+# DHARMa::testSimulatedResiduals(m1)
+
+fit_24_auc <- glm.nb(
+  auc_manchas ~ trat * lesion_size * hibrido + rep, 
+  data = les_size_24_auc)
+Anova(fit_24_auc, type=3) 
+
+# DHARMa::testSimulatedResiduals(fit_24_auc)
+
+# stepAIC(ls24)
+
+```
+
+comparaciones multiples 
+
+```{r}
+emmeans(fit_24_auc, ~trat|lesion_size|hibrido, type="response") %>% 
+    cld(decreasing=TRUE) 
+
+# emmeans(fit_24_auc, ~trat|lesion_size, type="response") %>% 
+#   cld %>% 
+#   relocate(lesion_size, trat) %>% 
+#   arrange(trat) %>% 
+#   kable()
+```
+
+## Posicion del canopeo
+
+```{r}
+raw_dat %>% 
+  pivot_longer(cols=contains("e_"), 
+               names_to = "lesion_pos",
+               names_prefix="e_") %>% 
+  group_by(ensayo) %>%
+  filter(score==FALSE) %>% 
+  # filter(fecha_evaluacion<"2023-04-01") %>% 
+  select(-matches("l_|b_|t_|a_")) -> les_pos
+
+les_pos %>% 
+   ggplot() + 
+   aes(ddinoc, value, col=lesion_pos) +
+   facet_grid(ensayo ~ hibrido*trat, scales = "free") + 
+   geom_point(position = position_dodge(width = 0.5)) + 
+   geom_smooth(se=F) + 
+   ggtitle("Posicion de lesiones")+
+   theme_PH_dates
+```
+
+```{r}
+les_pos %>% 
+  group_by(ensayo, trat, hibrido, lesion_pos, rep) %>% 
+  mutate(auc_manchas=as.integer(round(MESS::auc(date, value)))) %>% 
+  distinct(trat, hibrido, lesion_pos, rep, auc_manchas) -> les_pos_auc
+
+les_pos_auc %>% 
+   ggplot() + 
+   aes(trat, auc_manchas, col=lesion_pos) +
+   facet_grid(ensayo ~ hibrido, scales = "free") + 
+   geom_point(position = position_dodge(width = 0.5)) + 
+   geom_smooth(se=F) + 
+   ggtitle("Posicion de lesiones")+
+   theme_PH_dates
+```
+
+### 2023
+
+```{r}
+les_pos_23_auc <- les_pos_auc %>%
+  filter(ensayo == "1 - 2023")  
+# m1 <- glm(
+#   auc_manchas ~ trat * lesion_size * hibrido + rep,
+#   family=poisson,
+#   data = les_size_24_auc)
+# DHARMa::testSimulatedResiduals(m1)
+```
+
+
+```{r}
+fit_23_pos <- glm.nb(
+  auc_manchas ~ trat * lesion_pos * hibrido + rep, 
+  data = les_pos_23_auc)
+# testSimulatedResiduals(fit_23_pos)
+Anova(fit_23_pos, type=3)
+```
+
+trat:lesion_size:hibrido 
+
+```{r}
+emmeans(fit_23_pos, ~trat|lesion_pos|hibrido, type="response") %>% 
+  cld(decreasing=TRUE) 
+# emmeans(fit_23_auc, ~trat|lesion_size, type="response") %>% 
+#   cld %>% 
+#   relocate(lesion_size, trat) %>% 
+#   arrange(trat) %>% 
+#   kable()
+```
+
+### 2024
+
+```{r}
+les_pos_24_auc <- les_pos_auc %>%
+  filter(ensayo == "2 - 2024")  
+# m1 <- glm(
+#   auc_manchas ~ trat * lesion_size * hibrido + rep,
+#   family=poisson,
+#   data = les_size_24_auc)
+# DHARMa::testSimulatedResiduals(m1)
+```
+
+
+```{r}
+fit_24_pos <- glm.nb(
+  auc_manchas ~ trat * lesion_pos * hibrido + rep, 
+  data = les_pos_24_auc)
+# testSimulatedResiduals(fit_23_pos)
+Anova(fit_23_pos, type=3)
+```
+
+trat:lesion_size:hibrido 
+
+```{r}
+emmeans(fit_24_pos, ~trat|lesion_pos|hibrido, type="response") %>% 
+  cld(decreasing=TRUE) 
+# emmeans(fit_23_auc, ~trat|lesion_size, type="response") %>% 
+#   cld %>% 
+#   relocate(lesion_size, trat) %>% 
+#   arrange(trat) %>% 
+#   kable()
+```
+
+## Score
+
+```{r}
+raw_dat %>%
+  group_by(ensayo) %>%
+  filter(date == max(date)) %>% 
+  ungroup-> nlb_scores   # dplyr::filter(fecha_evaluacion<"2023-04-01") %>% 
+
+nlb_scores %>% 
+  filter(!str_detect(trat, "BLCO")) %>%
+  ggplot() + 
+  aes(trat, nlb_score) +
+  facet_grid(hibrido ~ ensayo) + 
+  geom_violin() + 
+  geom_count()+
+  scale_y_continuous(breaks = scales::pretty_breaks(5)) + 
+  theme_PH
+```
+
+
+### 2023
+
+```{r}
+library(ordinal)
+
+nlb_scores %>%
+  filter(str_detect(ensayo, "2023")) %>%
+  filter(!str_detect(trat, "BLCO")) %>%
+  data.frame %>% 
+  mutate_at("nlb_score", as.factor) %>% 
+  clmm(nlb_score ~ trat * hibrido + (1|rep), data = .) -> ord_score_23
+
+joint_tests(ord_score_23, by = c("trat"))
+joint_tests(ord_score_23, by = c("hibrido"))
+
+ord_score_23 %>% 
+  emmeans(~ trat|hibrido, type="response") %>% cld(decreasing=TRUE)
+```
+
+### 2024
+
+```{r}
+nlb_scores %>%
+  filter(str_detect(ensayo, "2024")) %>%
+  filter(!str_detect(trat, "BLCO")) %>%
+  data.frame %>% 
+  mutate_at("nlb_score", as.factor) %>% 
+  clmm(nlb_score ~ trat * hibrido + (1|rep), data = .) -> ord_score_24
+
+joint_tests(ord_score_24, by = "hibrido")
+
+ord_score_24 %>% 
+  emmeans(~ trat|hibrido, type="response") %>% 
+  cld(decreasing=TRUE)
+```
+
+
+```{r eval=FALSE}
+library(correlation)
+
+raw_dat %>% names 
+  group_by(ensayo, trat, hibrido) %>% 
+  summarise_if(is.numeric, mean, na.rm = TRUE) %>% 
+  ungroup() %>% 
+  select(where(is.numeric)) %>%
+  correlation::correlation()
+  GGally::ggpairs(lower = list(continuous = "smooth"))+
+  theme_PH
+```
+
